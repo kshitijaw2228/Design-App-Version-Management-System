@@ -32,14 +32,13 @@ public class Main {
 
     private static void setupBaseVersions(VersionManager vm, AppStore store) {
 
-        System.out.println("\n=========== Setting uo versions, patches and a release ===========");
+        System.out.println("\n=========== Setting up versions, patches and a release ===========");
         vm.uploadNewVersion("3.1.2", 24, "Initial release", "APK_v1".getBytes(StandardCharsets.UTF_8));
         vm.uploadNewVersion("3.4.1", 26, "Big features", "APK_v2".getBytes(StandardCharsets.UTF_8));
         vm.uploadNewVersion("4.1.0", 26, "UI refresh", "APK_v3".getBytes(StandardCharsets.UTF_8));
 
         vm.createUpdatePatch("3.1.2", "3.4.1");
         vm.createUpdatePatch("3.4.1", "4.1.0");
-        vm.createUpdatePatch("3.1.2", "4.1.0");
 
         vm.releaseVersion("4.1.0", new BetaRolloutStrategy(Set.of(
                 "Device-A", "Device-B", "Device-C", "Device-X", "Device-U", "Device-RACE", "Device-NEW")));
@@ -47,40 +46,43 @@ public class Main {
 
     private static void testUpload(VersionManager vm, AppStore store) {
         System.out.println("\n=========== TEST: uploadNewVersion ===========");
-        System.out.println("\n--- Successful upload ---");
+        System.out.println("\n--- Scenario 1: Successful upload ---");
         AppVersion v1 = vm.uploadNewVersion("6.0.0", 28, "Experimental build", "APK_v6".getBytes(StandardCharsets.UTF_8));
-        System.out.println("\n--- Upload with invalid version ---");
+        System.out.println("\n--- Scenario 2: Upload with invalid version ---");
         vm.uploadNewVersion("X.0.0", 0, "Bad upload", "APK".getBytes());
-        System.out.println("\n--- Uploading duplicate version ---");
+        System.out.println("\n--- Scenario 3: Uploading duplicate version ---");
         vm.uploadNewVersion("3.1.2", 24, "Duplicate", "APK_dup".getBytes());
     }
 
     private static void testPatch(VersionManager vm) {
         System.out.println("\n=========== TEST: createUpdatePatch ===========");
 
-        System.out.println("\n--- Duplicate Patch ---");
+        System.out.println("\n--- Scenario 1: Successful Patch creation ---");
+        vm.createUpdatePatch("3.1.2", "4.1.0");
+
+        System.out.println("\n--- Scenario 2: Duplicate Patch ---");
         vm.createUpdatePatch("3.1.2", "3.4.1");
 
-        System.out.println("\n--- Current Version does not exist ---");
+        System.out.println("\n--- Scenario 3: Current Version does not exist ---");
         vm.createUpdatePatch("0.0.1", "3.4.1");
 
-        System.out.println("\n--- Current version > Target Version ---");
+        System.out.println("\n--- Scenario 4: Current version > Target Version ---");
         vm.createUpdatePatch("3.4.1", "3.1.2");
     }
 
     private static void testRelease(VersionManager vm, AppStore store) {
         System.out.println("\n=========== TEST: releaseVersion ===========");
 
-        System.out.println("\n--- A version from store is released ---");
+        System.out.println("\n--- Scenario 1: A version from store is released ---");
         vm.releaseVersion("3.4.1", new BetaRolloutStrategy(Set.of("Device-A", "Device-B")));
 
-        System.out.println("\n--- Non-existing version is released ---");
+        System.out.println("\n--- Scenario 2: Non-existing version is released ---");
         vm.releaseVersion("9.9.9", new BetaRolloutStrategy(Set.of("Device-A")));
 
-        System.out.println("\n--- Invalid Parameters ---");
+        System.out.println("\n--- Scenario 3: Invalid Parameters ---");
         vm.releaseVersion("3.4.1", null);
 
-        System.out.println("\n--- Re-releasing released version ---");
+        System.out.println("\n--- Scenario 4: Re-releasing released version ---");
         vm.releaseVersion("3.4.1", new BetaRolloutStrategy(Set.of("Device-A", "Device-B")));
     }
 
@@ -105,7 +107,7 @@ public class Main {
         vm.checkForUpdates(deviceC);
 
         System.out.println("\n--- Scenario 4: Multiple versions available ---");
-        Device deviceD = new Device("Device-A", "Pixel-7", 34, "3.4.1");
+        Device deviceD = new Device("Device-D", "Pixel-9", 34, "3.4.1");
         vm.checkForUpdates(deviceD);
 
         System.out.println("\n--- Scenario 5: Device-OLD has API 23 (below minAndroidVersion 26) ---");
