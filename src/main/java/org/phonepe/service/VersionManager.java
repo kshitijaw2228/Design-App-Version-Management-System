@@ -32,6 +32,19 @@ public class VersionManager {
                                        int minAndroidVersion,
                                        String description,
                                        byte[] apkContent) {
+        if (version == null || version.isEmpty() || apkContent == null || apkContent.length == 0) {
+            System.out.println("[ERROR] Invalid upload request for version: " + version);
+            return null;
+        }
+        if (minAndroidVersion <= 0) {
+            System.out.println("[ERROR] Invalid minAndroidVersion for version: " + version);
+            return null;
+        }
+
+        if (store.getVersion(version) != null) {
+            System.out.println("[INFO] Version " + version + " already exists, skipping upload.");
+            return store.getVersion(version);
+        }
         String apkUrl = files.uploadFile(apkContent);
         AppVersion v = new AppVersion(version, minAndroidVersion, description, apkUrl);
         store.putVersion(v);
@@ -44,10 +57,18 @@ public class VersionManager {
         AppVersion from = getAppVersion(fromVersion);
         AppVersion to = getAppVersion(toVersion);
 
+        if (from == null || to == null) {
+            System.out.println("[ERROR] Cannot create patch: one or both versions are missing.");
+            return null;
+        }
+        if (compareVersions(fromVersion, toVersion) >= 0) {
+            System.out.println("[ERROR] Invalid patch order: fromVersion >= toVersion.");
+            return null;
+        }
         // Fast path: if someone already created it, reuse
         String existing = to.getDiffFrom(fromVersion);
         if (existing != null) {
-            System.out.println("[PATCH] Already exists, reusing diff: " + existing);
+            System.out.println("[INFO] Patch already exists: " + fromVersion + " -> " + toVersion);
             return existing;
         }
 
@@ -61,6 +82,19 @@ public class VersionManager {
 
     // ------------ API: release ------------
     public void releaseVersion(String toVersion, RolloutStrategy strategy) {
+        AppVersion v = store.getVersion(toVersion);
+        if (v == null) {
+            System.out.println("[ERROR] Cannot release: version " + toVersion + " not found.");
+            return;
+        }
+        if (strategy == null) {
+            System.out.println("[ERROR] Rollout strategy is null for version " + toVersion);
+            return;
+        }
+        if (store.isReleased(toVersion)) {
+            System.out.println("[INFO] Version " + toVersion + " already released. Skipping duplicate release.");
+            return;
+        }
         store.markReleased(toVersion, strategy);
     }
 
@@ -78,7 +112,10 @@ public class VersionManager {
     // ------------ API: check updates ------------
     public Optional<UpdatePlan> checkForUpdates(Device device) {
         List<String> released = store.releasedVersionsSorted();
-        if (released.isEmpty()) return Optional.empty();
+        if (released.isEmpty()) {
+            System.out.println("[INFO] No released versions available.");
+            return Optional.empty();
+        }
 
         String current = device.getCurrentAppVersion();
         UpdatePlan plan = null;
@@ -107,14 +144,19 @@ public class VersionManager {
     }
 
     public void executeTask(Device device, UpdatePlan plan) {
-        if (plan == null) throw new IllegalArgumentException("plan is null");
+        if (plan == null) {
+            System.out.println("[WARN] No update plan provided for device " + device.getDeviceId());
+            return;
+        }
         synchronized (device.lock()) {
             String curr   = device.getCurrentAppVersion();
             String target = plan.target().getVersion();
 
             // Idempotency: if another thread already set this target, skip
-            if (curr != null && compareVersions(target, curr) <= 0) return;
-
+            if (curr != null && compareVersions(target, curr) <= 0) {
+                System.out.println("[INFO] Device " + device.getDeviceId() + " already on " + curr + ", skipping.");
+                return;
+            }
             switch (plan.type()) {
                 case INSTALL -> {
                     installer.installApp(device, plan.apkUrl());
@@ -130,7 +172,10 @@ public class VersionManager {
 
     private AppVersion getAppVersion(String version) {
         AppVersion v = store.getVersion(version);
-        if (v == null) throw new IllegalArgumentException("Unknown version: " + version);
+        if (v == null) {
+            System.out.println("[ERROR] Unknown version: " + version);
+            return null;
+        }
         return v;
     }
 }
