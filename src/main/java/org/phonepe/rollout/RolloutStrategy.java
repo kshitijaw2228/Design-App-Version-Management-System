@@ -1,6 +1,5 @@
 package org.phonepe.rollout;
 
-
 import org.phonepe.domain.Device;
 
 public interface RolloutStrategy {

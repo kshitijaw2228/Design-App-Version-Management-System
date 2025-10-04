@@ -1,13 +1,11 @@
 package org.phonepe;
 
+import org.phonepe.domain.AppVersion;
 import org.phonepe.domain.Device;
 import org.phonepe.domain.UpdatePlan;
 import org.phonepe.enums.UpdateType;
 import org.phonepe.rollout.BetaRolloutStrategy;
-import org.phonepe.service.DiffService;
-import org.phonepe.service.FileService;
-import org.phonepe.service.Installer;
-import org.phonepe.service.VersionManager;
+import org.phonepe.service.*;
 import org.phonepe.store.AppStore;
 
 import java.nio.charset.StandardCharsets;
@@ -24,66 +22,135 @@ public class Main {
         Installer installer = new Installer(files);
         VersionManager vm = new VersionManager(store, files, diffs, installer);
 
-        // ---- Upload versions ----
-        vm.uploadNewVersion("1.0.0", 24, "Initial release",
+        System.out.println("=========== TEST: uploadNewVersion ===========");
+        // ✅ Happy path
+        AppVersion v1 = vm.uploadNewVersion("3.1.2", 24, "Initial release",
                 "APK_v1".getBytes(StandardCharsets.UTF_8));
-        vm.uploadNewVersion("2.0.0", 26, "Big features",
+        assertTrue("Version 3.1.2 stored", store.getVersion("3.1.2") == v1);
+        assertTrue("APK uploaded to mem://", v1.getApkUrl().startsWith("mem://"));
+
+        // ❌ Edge: Missing required field (min version)
+        boolean failed = false;
+        try {
+            vm.uploadNewVersion("X.0.0", 0, "Bad upload", "APK".getBytes());
+        } catch (AssertionError | IllegalArgumentException e) {
+            failed = true;
+        }
+        assertTrue("Missing minVersion correctly rejected", failed);
+
+        // ❌ Edge: duplicate version
+        boolean dupFailed = false;
+        try {
+            vm.uploadNewVersion("3.1.2", 24, "Duplicate version", "APK_v1".getBytes());
+        } catch (IllegalArgumentException e) {
+            dupFailed = true;
+        }
+        assertTrue("Duplicate upload correctly rejected", dupFailed);
+
+        // ---- Upload additional versions ----
+        vm.uploadNewVersion("3.4.1", 26, "Big features",
                 "APK_v2".getBytes(StandardCharsets.UTF_8));
-        vm.uploadNewVersion("3.0.0", 26, "UI refresh",
+        vm.uploadNewVersion("4.1.0", 26, "UI refresh",
                 "APK_v3".getBytes(StandardCharsets.UTF_8));
 
-        // ---- Create patches ----
-        vm.createUpdatePatch("1.0.0", "2.0.0");
-        vm.createUpdatePatch("2.0.0", "3.0.0");
-        vm.createUpdatePatch("1.0.0", "3.0.0");
+        System.out.println("\n=========== TEST: createUpdatePatch ===========");
+        // ✅ Happy path
+        String diff1 = vm.createUpdatePatch("3.1.2", "3.4.1");
+        assertTrue("Patch 3.1.2 -> 3.4.1 created", diff1.startsWith("mem://"));
 
-        // ---- Release with strategies ----
-        vm.releaseVersion("2.0.0", new BetaRolloutStrategy(Set.of("Device-A", "Device-B"))); // only A,B
-        // Simulate "full" rollout of 3.0.0 to the devices we test by whitelisting them
-        vm.releaseVersion("3.0.0",
-                new BetaRolloutStrategy(Set.of("Device-A", "Device-B", "Device-C", "Device-X", "Device-U", "Device-RACE", "Device-NEW")));
+        // ❌ Edge: fromVersion doesn't exist
+        boolean invalidFrom = false;
+        try {
+            vm.createUpdatePatch("0.0.1", "3.4.1");
+        } catch (IllegalArgumentException e) {
+            invalidFrom = true;
+        }
+        assertTrue("Invalid fromVersion handled", invalidFrom);
 
-        // ---- Devices ----
-        Device devA = new Device("Device-A", "Pixel-7", 34, "1.0.0");
-        Device devB = new Device("Device-B", "Samsung-S23", 33, "2.0.0");
-        Device devC = new Device("Device-C", "Moto-G", 26, "1.0.0");    // not in 2.0.0 beta; eligible for 3.0.0 beta
-        Device devOld = new Device("Device-OLD", "Nexus-5x", 23, null); // below min api for 2.0.0+
-        Device devNew = new Device("Device-NEW", "Pixel-8", 34, null); // fresh device
+        // ❌ Edge: fromVersion >= toVersion
+        boolean invalidOrder = false;
+        try {
+            vm.createUpdatePatch("3.4.1", "3.1.2");
+        } catch (AssertionError e) {
+            invalidOrder = true;
+        }
+        assertTrue("fromVersion >= toVersion rejected", invalidOrder);
 
+        // ✅ Idempotent duplicate patch
+        String diffAgain = vm.createUpdatePatch("3.1.2", "3.4.1");
+        assertTrue("Duplicate patch returns existing diff", diff1.equals(diffAgain));
 
-        // ---- Check/update sequence ----
+        // Additional patches
+        vm.createUpdatePatch("3.4.1", "4.1.0");
+        vm.createUpdatePatch("3.1.2", "4.1.0");
+
+        System.out.println("\n=========== TEST: releaseVersion ===========");
+        // ✅ Happy path: valid rollout
+        vm.releaseVersion("3.4.1", new BetaRolloutStrategy(Set.of("Device-A", "Device-B")));
+        assertTrue("3.4.1 released", store.isReleased("3.4.1"));
+
+        // ❌ Edge: version doesn’t exist
+        boolean badRelease = false;
+        try {
+            vm.releaseVersion("9.9.9", new BetaRolloutStrategy(Set.of("Device-A")));
+        } catch (IllegalArgumentException e) {
+            badRelease = true;
+        }
+        assertTrue("Release invalid version rejected", badRelease);
+
+        // ❌ Edge: null rollout strategy
+        boolean badStrategy = false;
+        try {
+            vm.releaseVersion("3.4.1", null);
+        } catch (IllegalArgumentException e) {
+            badStrategy = true;
+        }
+        assertTrue("Null rollout rejected", badStrategy);
+
+        // ✅ Idempotent re-release
+        vm.releaseVersion("3.4.1", new BetaRolloutStrategy(Set.of("Device-A", "Device-B")));
+        assertTrue("Re-release handled idempotently", store.isReleased("3.4.1"));
+
+        // Release for full rollout
+        vm.releaseVersion("4.1.0", new BetaRolloutStrategy(
+                Set.of("Device-A", "Device-B", "Device-C", "Device-X", "Device-U", "Device-RACE", "Device-NEW")));
+
+        System.out.println("\n=========== TEST: end-to-end flow ===========");
+        Device devA = new Device("Device-A", "Pixel-7", 34, "3.1.2");
+        Device devB = new Device("Device-B", "Samsung-S23", 33, "3.4.1");
+        Device devC = new Device("Device-C", "Moto-G", 26, "3.1.2");
+        Device devOld = new Device("Device-OLD", "Nexus-5x", 23, null);
+        Device devNew = new Device("Device-NEW", "Pixel-8", 34, null);
+
         runFlow(vm, devA);
         runFlow(vm, devB);
         runFlow(vm, devC);
         runFlow(vm, devOld);
         runFlow(vm, devNew);
 
-        // ---- Assertions (quick coverage) ----
         System.out.println("\n--- Assertions ---");
-        assertTrue("Device A bumped to 3.0.0", "3.0.0".equals(devA.getCurrentAppVersion()));
-        assertTrue("Device B bumped to 3.0.0", "3.0.0".equals(devB.getCurrentAppVersion()));
-        assertTrue("Device C bumped to 3.0.0", "3.0.0".equals(devC.getCurrentAppVersion()));
+        assertTrue("Device A bumped to 4.1.0", "4.1.0".equals(devA.getCurrentAppVersion()));
+        assertTrue("Device B bumped to 4.1.0", "4.1.0".equals(devB.getCurrentAppVersion()));
+        assertTrue("Device C bumped to 4.1.0", "4.1.0".equals(devC.getCurrentAppVersion()));
         assertTrue("Device OLD stays null (min API not met)", devOld.getCurrentAppVersion() == null);
 
-        // Unknown current version → full install of latest eligible (3.0.0)
         Device dUnknown = new Device("Device-U", "Test", 34, "1.2.9");
         Optional<UpdatePlan> planUnknown = vm.checkForUpdates(dUnknown);
-        assertTrue("Unknown current => INSTALL to 3.0.0",
+        assertTrue("Unknown current => INSTALL to 4.1.0",
                 planUnknown.isPresent()
                         && planUnknown.get().type() == UpdateType.INSTALL
-                        && "3.0.0".equals(planUnknown.get().target().getVersion()));
+                        && "4.1.0".equals(planUnknown.get().target().getVersion()));
 
-        // (Optional) simple race demo: two threads try to update same device; end state should be latest once
-        System.out.println("\n--- 2 threads try to update same device ---");
+        System.out.println("\n--- Race condition demo ---");
         CountDownLatch start = new CountDownLatch(1);
-        final Object firstLock = new Object();
+        final Object lock = new Object();
         final String[] winner = new String[1];
         Device dRace = new Device("Device-RACE", "Test", 34, "1.0.0");
         Runnable upd = () -> {
             try { start.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             vm.checkForUpdates(dRace).ifPresent(plan -> {
-                vm.executeTask(dRace, plan); // assumes per-device locking inside VersionManager
-                synchronized (firstLock) {
+                vm.executeTask(dRace, plan);
+                synchronized (lock) {
                     if (winner[0] == null) {
                         winner[0] = Thread.currentThread().getName();
                         System.out.println("Device updated on " + winner[0]);
@@ -92,15 +159,15 @@ public class Main {
             });
         };
 
-        Thread a = new Thread(upd,"Thread-a");
-        Thread b = new Thread(upd, "Thread-b");
+        Thread a = new Thread(upd, "Thread-A");
+        Thread b = new Thread(upd, "Thread-B");
         a.start(); b.start();
-        start.countDown(); // GO
+        start.countDown();
         a.join(); b.join();
-
         System.out.println("[INFO] Race device final version = " + dRace.getCurrentAppVersion());
+        assertTrue("Race device reached latest version", "4.1.0".equals(dRace.getCurrentAppVersion()));
 
-        System.out.println("\nAll done.");
+        System.out.println("\n✅ ALL TESTS PASSED SUCCESSFULLY ✅");
     }
 
     private static void runFlow(VersionManager vm, Device device) {
@@ -110,10 +177,8 @@ public class Main {
             System.out.println("No update available.");
             return;
         }
-
         UpdatePlan plan = planOpt.get();
         System.out.println("Plan: " + plan);
-
         vm.executeTask(device, plan);
         System.out.println("After task, device version = " + device.getCurrentAppVersion());
     }

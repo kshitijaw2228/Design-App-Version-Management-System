@@ -5,23 +5,22 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class AppVersion {
-    private final String version;                   // e.g., "1.0.0"
-    private final int minAndroidApi;                // e.g., 24
+    private final String version;
+    private final int minAndroidVersion;
     private final String description;
-    private final String apkUrl;                    // uploaded URL in our in-memory store
-    private boolean released;                       // set true after release
-    // fromVersion -> diffPackUrl (for updates)
+    private final String apkUrl;
+    private boolean released;
     private final Map<String, String> diffPacks = new ConcurrentHashMap<>();
 
-    public AppVersion(String version, int minAndroidApi, String description, String apkUrl) {
+    public AppVersion(String version, int minAndroidVersion, String description, String apkUrl) {
         this.version = Objects.requireNonNull(version);
-        this.minAndroidApi = minAndroidApi;
+        this.minAndroidVersion = minAndroidVersion;
         this.description = description == null ? "" : description;
         this.apkUrl = Objects.requireNonNull(apkUrl);
     }
 
     public String getVersion() { return version; }
-    public int getMinAndroidApi() { return minAndroidApi; }
+    public int getMinAndroidVersion() { return minAndroidVersion; }
     public String getDescription() { return description; }
     public String getApkUrl() { return apkUrl; }
     public boolean isReleased() { return released; }
@@ -44,7 +43,7 @@ public class AppVersion {
     public String toString() {
         return "AppVersion{" +
                 "version='" + version + '\'' +
-                ", minAndroidApi=" + minAndroidApi +
+                ", minAndroidVersion=" + minAndroidVersion +
                 ", released=" + released +
                 '}';
     }
