@@ -6,6 +6,7 @@ import org.phonepe.domain.UpdatePlan;
 import org.phonepe.enums.UpdateType;
 import org.phonepe.rollout.RolloutStrategy;
 import org.phonepe.store.AppStore;
+import org.phonepe.util.CompareVersion;
 
 import java.util.*;
 
@@ -18,16 +19,15 @@ public class VersionManager {
     private final AppStore store;
     private final FileService files;
     private final DiffService diffs;
-    private final Installer installer;
+    private final InstallationService installationService;
 
-    public VersionManager(AppStore store, FileService files, DiffService diffs, Installer installer) {
+    public VersionManager(AppStore store, FileService files, DiffService diffs, InstallationService installationService) {
         this.store = store;
         this.files = files;
         this.diffs = diffs;
-        this.installer = installer;
+        this.installationService = installationService;
     }
 
-    // ------------ API: upload ------------
     public AppVersion uploadNewVersion(String version,
                                        int minAndroidVersion,
                                        String description,
@@ -45,14 +45,12 @@ public class VersionManager {
             System.out.println("[INFO] Version " + version + " already exists, skipping upload.");
             return store.getVersion(version);
         }
-        String apkUrl = files.uploadFile(apkContent);
+        String apkUrl = files.uploadFile(apkContent,"APK");
         AppVersion v = new AppVersion(version, minAndroidVersion, description, apkUrl);
         store.putVersion(v);
-        System.out.println("[UPLOAD] Version " + version + " uploaded successfully.");
         return v;
     }
 
-    // ------------ API: patch ------------
     public String createUpdatePatch(String fromVersion, String toVersion) {
         AppVersion from = getAppVersion(fromVersion);
         AppVersion to = getAppVersion(toVersion);
@@ -74,13 +72,12 @@ public class VersionManager {
 
         byte[] fromApk = files.getFile(from.getApkUrl());
         byte[] toApk = files.getFile(to.getApkUrl());
-        String diffUrl = files.uploadFile(diffs.createDiffPack(fromApk, toApk));
+        String diffUrl = files.uploadFile(diffs.createDiffPack(fromApk, toApk),"DIFF");
         to.addDiffPack(fromVersion, diffUrl);
         System.out.println("[PATCH] Diff created between " + fromVersion + " -> " + toVersion);
         return diffUrl;
     }
 
-    // ------------ API: release ------------
     public void releaseVersion(String toVersion, RolloutStrategy strategy) {
         AppVersion v = store.getVersion(toVersion);
         if (v == null) {
@@ -98,7 +95,6 @@ public class VersionManager {
         store.markReleased(toVersion, strategy);
     }
 
-    // ------------ API: support check ------------
     public boolean isAppVersionSupported(String targetVersion, Device device) {
         AppVersion v = store.getVersion(targetVersion);
         if (v == null || !store.isReleased(targetVersion)) return false;
@@ -109,8 +105,9 @@ public class VersionManager {
                 .orElse(false);
     }
 
-    // ------------ API: check updates ------------
     public Optional<UpdatePlan> checkForUpdates(Device device) {
+        System.out.println("\n[CHECK] Checking updates for device: " + device);
+
         List<String> released = store.releasedVersionsSorted();
         if (released.isEmpty()) {
             System.out.println("[INFO] No released versions available.");
@@ -118,29 +115,62 @@ public class VersionManager {
         }
 
         String current = device.getCurrentAppVersion();
-        UpdatePlan plan = null;
+        if (current == null) {
+            System.out.println("[INFO] Device has no current version installed.");
+        } else {
+            System.out.println("[INFO] Current version: " + current);
+        }
 
-        for (String release : released) {
-            if (!isAppVersionSupported(release, device)) continue;
+        System.out.println("[INFO] Released versions available: " + released);
 
-            if (current == null) {
-                AppVersion to = store.getVersion(release);
-                plan = new UpdatePlan(UpdateType.INSTALL, null, to, to.getApkUrl(), null);
-                continue;
-            }
+        // ✅ Step 1: Filter out lower or equal versions
+        List<String> newer = released.stream()
+                .filter(v -> current == null || CompareVersion.compareVersions(v, current) > 0)
+                .toList();
 
-            AppVersion to = store.getVersion(release);
-            if(current.equals(to.getVersion())){
-                return Optional.empty();
-            }
-            String diff = to.getDiffFrom(current);
-            if (diff != null) {
-                plan = new UpdatePlan(UpdateType.UPDATE, store.getVersion(current), to, null, diff);
+        if (newer.isEmpty()) {
+            System.out.println("[RESULT] No newer versions available for device " + device.getDeviceId());
+            return Optional.empty();
+        }
+
+        // ✅ Step 2: Pick the latest eligible version
+        String latest = null;
+        for (String version : newer) {
+            if (isAppVersionSupported(version, device)) {
+                latest = version; // keep last eligible
             } else {
-                plan = new UpdatePlan(UpdateType.INSTALL, store.getVersion(current), to, to.getApkUrl(), null);
+                System.out.println("[SKIP] " + version + " → Not eligible (rollout/minAndroidVersion restriction).");
             }
         }
-        return Optional.ofNullable(plan);
+
+        if (latest == null) {
+            System.out.println("[RESULT] No eligible updates for device " + device.getDeviceId());
+            return Optional.empty();
+        }
+
+        AppVersion target = store.getVersion(latest);
+        AppVersion currentApp = (current != null) ? store.getVersion(current) : null;
+
+        // ✅ Step 3: Choose update type
+        UpdatePlan plan;
+        if (current == null) {
+            plan = new UpdatePlan(UpdateType.INSTALL, null, target, target.getApkUrl(), null);
+            System.out.println("[PLAN] Device has no app → Install " + latest);
+        } else {
+            String diffUrl = target.getDiffFrom(current);
+            if (diffUrl != null) {
+                plan = new UpdatePlan(UpdateType.UPDATE, currentApp, target, null, diffUrl);
+                System.out.println("[PLAN] Found diff update from " + current + " → " + latest);
+            } else {
+                System.out.println("[INFO] No diff available between " + current + " → " + target.getVersion() + ". Attempting dynamic diff creation...");
+                String generatedDiff = diffs.generateDiffIfMissing(store.getVersion(current), target);
+                plan = new UpdatePlan(UpdateType.UPDATE, store.getVersion(current), target, null, generatedDiff);
+                System.out.println("[PLAN] Found diff update from " + current + " → " + latest);
+            }
+        }
+
+        System.out.println("[RESULT] Final update plan for " + device.getDeviceId() + ": " + plan);
+        return Optional.of(plan);
     }
 
     public void executeTask(Device device, UpdatePlan plan) {
@@ -159,11 +189,11 @@ public class VersionManager {
             }
             switch (plan.type()) {
                 case INSTALL -> {
-                    installer.installApp(device, plan.apkUrl());
+                    installationService.installApp(device, plan.apkUrl());
                     device.setCurrentAppVersion(plan.target().getVersion());
                 }
                 case UPDATE -> {
-                    installer.updateApp(device, plan.diffUrl());
+                    installationService.updateApp(device, plan.diffUrl());
                     device.setCurrentAppVersion(plan.target().getVersion());
                 }
             }
@@ -173,7 +203,7 @@ public class VersionManager {
     private AppVersion getAppVersion(String version) {
         AppVersion v = store.getVersion(version);
         if (v == null) {
-            System.out.println("[ERROR] Unknown version: " + version);
+            System.out.println("[ERROR] Version does not exist in store: " + version);
             return null;
         }
         return v;

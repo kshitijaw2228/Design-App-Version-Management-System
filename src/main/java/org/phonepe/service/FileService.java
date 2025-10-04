@@ -12,14 +12,14 @@ import java.util.concurrent.ConcurrentHashMap;
 public class FileService {
     private final Map<String, byte[]> storage = new ConcurrentHashMap<>();
 
-    public String uploadFile(byte[] content) {
+    public String uploadFile(byte[] content, String fileType) {
         if (content == null || content.length == 0) {
-            System.out.println("[ERROR] Cannot upload empty file.");
+            System.out.println("[ERROR] Cannot upload empty " + fileType + " file.");
             return null;
         }
         String id = "mem://" + UUID.randomUUID();
         storage.put(id, content);
-        System.out.println("[FILE] Uploaded file to " + id + " (" + content.length + " bytes)");
+        System.out.println("[FILE] Uploaded " + fileType + " file to " + id + " (" + content.length + " bytes)");
         return id;
     }
 

@@ -2,10 +2,10 @@ package org.phonepe.service;
 
 import org.phonepe.domain.Device;
 
-public class Installer {
+public class InstallationService {
     private final FileService files;
 
-    public Installer(FileService files) { this.files = files; }
+    public InstallationService(FileService files) { this.files = files; }
 
     public void installApp(Device device, String apkUrl) {
         byte[] apk = files.getFile(apkUrl);
