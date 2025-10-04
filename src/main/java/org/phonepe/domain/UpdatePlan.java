@@ -6,8 +6,8 @@ public record UpdatePlan(
         UpdateType type,
         AppVersion current,
         AppVersion target,
-        String apkUrl,   // for INSTALL
-        String diffUrl   // for UPDATE
+        String apkUrl,
+        String diffUrl
 ) {
     @Override
     public String toString() {
