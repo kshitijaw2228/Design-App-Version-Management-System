@@ -28,8 +28,6 @@ public class Main {
         System.out.println("\n✅ ALL TESTS COMPLETED SUCCESSFULLY ✅");
     }
 
-    // ---------------- TEST SECTIONS ----------------
-
     private static void setupBaseVersions(VersionManager vm, AppStore store) {
 
         System.out.println("\n=========== Setting up versions, patches and a release ===========");

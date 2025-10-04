@@ -34,11 +34,6 @@ public class AppVersion {
         return diffPacks.get(fromVersion);
     }
 
-    public String putDiffIfAbsent(String fromVersion, String url) {
-        String prev = diffPacks.putIfAbsent(fromVersion, url);
-        return prev == null ? url : prev; // return the winner
-    }
-
     @Override
     public String toString() {
         return "AppVersion{" +

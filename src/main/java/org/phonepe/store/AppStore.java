@@ -11,9 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * In-memory store for versions and rollout strategies.
  */
 public class AppStore {
-    // version string -> AppVersion
+
     private final Map<String, AppVersion> versions = new ConcurrentHashMap<>();
-    // version string -> rollout strategy
     private final Map<String, RolloutStrategy> releases = new ConcurrentHashMap<>();
 
     public void putVersion(AppVersion v) {
@@ -27,10 +26,6 @@ public class AppStore {
 
     public AppVersion getVersion(String version) {
         return versions.get(version);
-    }
-
-    public Collection<AppVersion> allVersions() {
-        return versions.values();
     }
 
     public void markReleased(String version, RolloutStrategy strategy) {

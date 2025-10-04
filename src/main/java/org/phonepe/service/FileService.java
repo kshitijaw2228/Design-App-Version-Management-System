@@ -5,7 +5,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Minimal in-memory file store.
+ * In-memory file store.
  * uploadFile -> returns "mem://<id>"
  * getFile    -> returns stored content
  */

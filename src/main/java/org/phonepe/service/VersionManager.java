@@ -63,7 +63,6 @@ public class VersionManager {
             System.out.println("[ERROR] Invalid patch order: fromVersion >= toVersion.");
             return null;
         }
-        // Fast path: if someone already created it, reuse
         String existing = to.getDiffFrom(fromVersion);
         if (existing != null) {
             System.out.println("[INFO] Patch already exists: " + fromVersion + " -> " + toVersion);
@@ -120,10 +119,8 @@ public class VersionManager {
         } else {
             System.out.println("[INFO] Current version: " + current);
         }
-
         System.out.println("[INFO] Released versions available: " + released);
 
-        // ✅ Step 1: Filter out lower or equal versions
         List<String> newer = released.stream()
                 .filter(v -> current == null || CompareVersion.compareVersions(v, current) > 0)
                 .toList();
@@ -133,11 +130,10 @@ public class VersionManager {
             return Optional.empty();
         }
 
-        // ✅ Step 2: Pick the latest eligible version
         String latest = null;
         for (String version : newer) {
             if (isAppVersionSupported(version, device)) {
-                latest = version; // keep last eligible
+                latest = version;
             } else {
                 System.out.println("[SKIP] " + version + " → Not eligible (rollout/minAndroidVersion restriction).");
             }
@@ -151,7 +147,6 @@ public class VersionManager {
         AppVersion target = store.getVersion(latest);
         AppVersion currentApp = (current != null) ? store.getVersion(current) : null;
 
-        // ✅ Step 3: Choose update type
         UpdatePlan plan;
         if (current == null) {
             plan = new UpdatePlan(UpdateType.INSTALL, null, target, target.getApkUrl(), null);
@@ -168,7 +163,6 @@ public class VersionManager {
                 System.out.println("[PLAN] Found diff update from " + current + " → " + latest);
             }
         }
-
         System.out.println("[RESULT] Final update plan for " + device.getDeviceId() + ": " + plan);
         return Optional.of(plan);
     }
@@ -182,7 +176,6 @@ public class VersionManager {
             String curr   = device.getCurrentAppVersion();
             String target = plan.target().getVersion();
 
-            // Idempotency: if another thread already set this target, skip
             if (curr != null && compareVersions(target, curr) <= 0) {
                 System.out.println("[INFO] Device " + device.getDeviceId() + " already on " + curr + ", skipping.");
                 return;

@@ -14,7 +14,6 @@ public class CompareVersion {
             int bi = i < bs.length ? Integer.parseInt((bs[i])) : 0;
             if (ai != bi) return Integer.compare(ai, bi);
         }
-        // tie-breaker if numerically equal (e.g., "1.0" vs "1.0.0")
         return a.length() - b.length();
     }
 }
